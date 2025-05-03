@@ -14,9 +14,18 @@ def parse_mft(file_data, offset_to_mft):
     mft_header = MFTHeader(offset_to_mft)
     mft_header_info = {
         "Signature": file_data[mft_header.Signature : mft_header.Signature + 4].decode(errors="ignore"),
+        "Offset_to_Fixup_Array": int.from_bytes(file_data[mft_header.Offset_to_Fixup_Array : mft_header.Offset_to_Fixup_Array + 2], "little"),
+        "Number_of_Entries_in_Fixup_Array": int.from_bytes(file_data[mft_header.Number_of_Entries_in_Fixup_Array : mft_header.Number_of_Entries_in_Fixup_Array + 2], "little"),
+        "LogFile_Sequence_Number": int.from_bytes(file_data[mft_header.LogFile_Sequence_Number : mft_header.LogFile_Sequence_Number + 8], "little"),
         "Sequence_Number": int.from_bytes(file_data[mft_header.Sequence_Number : mft_header.Sequence_Number + 2], "little"),
         "Link_Count": int.from_bytes(file_data[mft_header.Link_Count : mft_header.Link_Count + 2], "little"),
+        "Offset_to_First_Attribute": int.from_bytes(file_data[mft_header.Offset_to_First_Attribute : mft_header.Offset_to_First_Attribute + 2], "little"),
         "Flags": int.from_bytes(file_data[mft_header.Flags : mft_header.Flags + 2], "little"),
+        "Used_Size_of_MFT_Entry": int.from_bytes(file_data[mft_header.Used_Size_of_MFT_Entry : mft_header.Used_Size_of_MFT_Entry + 4], "little"),
+        "Allocated_Size_of_MFT_Entry": int.from_bytes(file_data[mft_header.Allocated_Size_of_MFT_Entry : mft_header.Allocated_Size_of_MFT_Entry + 4], "little"),
+        "File_Reference_to_Base_Record": int.from_bytes(file_data[mft_header.File_Reference_to_Base_Record : mft_header.File_Reference_to_Base_Record + 8], "little"),
+        "Next_Attribute_ID": int.from_bytes(file_data[mft_header.Next_Attribute_ID : mft_header.Next_Attribute_ID + 2], "little"),
+        "Align_to_4B_Boundary": int.from_bytes(file_data[mft_header.Align_to_4B_Boundary : mft_header.Align_to_4B_Boundary + 2], "little"),
         "Number_of_This_MFT_Entry": int.from_bytes(file_data[mft_header.Number_of_This_MFT_Entry : mft_header.Number_of_This_MFT_Entry + 4], "little"),
     }
     result["MFT_Header"] = mft_header_info
@@ -33,6 +42,8 @@ def parse_mft(file_data, offset_to_mft):
     non_resident_headers = []
     attribute_contents = []
 
+    i = 0
+
     while True:
         attr_header = MFTOffset(offset_to_mft, offset_to_attribute, 0).AttributesHeader
 
@@ -44,13 +55,23 @@ def parse_mft(file_data, offset_to_mft):
         non_resident_flag = file_data[attr_header.Non_Resident_Flag]
         attribute_id = int.from_bytes(file_data[attr_header.Attribute_ID : attr_header.Attribute_ID + 2], "little")
 
+        # 배열이 비어있으면 새로 추가
+        while len(attribute_headers) <= i:
+            attribute_headers.append([])
+            non_resident_headers.append([])
+            attribute_contents.append([])
+
+        # Add attribute header
         attr_header_info = {
-            "Attribute_Type_ID": hex(attribute_type),
-            "Attribute_Length": attribute_length,
-            "Non_Resident_Flag": non_resident_flag,
-            "Attribute_ID": attribute_id
+            "Attribute_Type_ID": int.from_bytes(file_data[attr_header.Attribute_Type_ID : attr_header.Attribute_Type_ID + 4], "little"),
+            "Length_of_Attribute": int.from_bytes(file_data[attr_header.Length_of_Attribute : attr_header.Length_of_Attribute + 4], "little"),
+            "Non_Resident_Flag": file_data[attr_header.Non_Resident_Flag],
+            "Length_of_Name": file_data[attr_header.Length_of_Name],
+            "Offset_to_Name": int.from_bytes(file_data[attr_header.Offset_to_Name : attr_header.Offset_to_Name + 2], "little"),
+            "Flag": int.from_bytes(file_data[attr_header.Flag : attr_header.Flag + 2], "little"),
+            "Attribute_ID": int.from_bytes(file_data[attr_header.Attribute_ID : attr_header.Attribute_ID + 2], "little"),
         }
-        attribute_headers.append(attr_header_info)
+        attribute_headers[i].append(attr_header_info)
 
         # ─────────── 4. Attribute Content ───────────
         attr_content_info = {"Attribute_Type_ID": hex(attribute_type)}
@@ -92,17 +113,19 @@ def parse_mft(file_data, offset_to_mft):
 
         # Non-resident Header
         else:
-            non_resident_headers.append({
+            non_resident_headers[i].append({
                 "Attribute_Type_ID": hex(attribute_type),
                 "Note": "Non-resident attribute parsing not implemented."
             })
 
-        attribute_contents.append(attr_content_info)
+        attribute_contents[i].append(attr_content_info)
         offset_to_attribute += attribute_length
+
+        i += 1
 
     result["Attribute_Headers"] = attribute_headers
     if non_resident_headers:
         result["Non_Resident_Headers"] = non_resident_headers
     result["Attribute_Contents"] = attribute_contents
 
-    return result
+    return result, i
