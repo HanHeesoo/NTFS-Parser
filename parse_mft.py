@@ -1,0 +1,108 @@
+from mft_info import *
+from datetime import datetime, timedelta
+
+def filetime_to_datetime(filetime_int):
+    """Windows FILETIME (100ns 단위, 1601년 기준) → datetime 문자열"""
+    if filetime_int == 0:
+        return "N/A"
+    return (datetime(1601, 1, 1) + timedelta(microseconds=filetime_int // 10)).strftime('%Y-%m-%d %H:%M:%S')
+
+def parse_mft(file_data, offset_to_mft):
+    result = {}
+
+    # ─────────────── 1. MFT Header ───────────────
+    mft_header = MFTHeader(offset_to_mft)
+    mft_header_info = {
+        "Signature": file_data[mft_header.Signature : mft_header.Signature + 4].decode(errors="ignore"),
+        "Sequence_Number": int.from_bytes(file_data[mft_header.Sequence_Number : mft_header.Sequence_Number + 2], "little"),
+        "Link_Count": int.from_bytes(file_data[mft_header.Link_Count : mft_header.Link_Count + 2], "little"),
+        "Flags": int.from_bytes(file_data[mft_header.Flags : mft_header.Flags + 2], "little"),
+        "Number_of_This_MFT_Entry": int.from_bytes(file_data[mft_header.Number_of_This_MFT_Entry : mft_header.Number_of_This_MFT_Entry + 4], "little"),
+    }
+    result["MFT_Header"] = mft_header_info
+
+    # ─────────────── 2. Offset to First Attribute ───────────────
+    offset_to_first_attr = int.from_bytes(
+        file_data[mft_header.Offset_to_First_Attribute : mft_header.Offset_to_First_Attribute + 2],
+        byteorder="little"
+    )
+    offset_to_attribute = offset_to_mft + offset_to_first_attr
+
+    # ─────────────── 3. Attributes 반복 파싱 ───────────────
+    attribute_headers = []
+    non_resident_headers = []
+    attribute_contents = []
+
+    while True:
+        attr_header = MFTOffset(offset_to_mft, offset_to_attribute, 0).AttributesHeader
+
+        attribute_type = int.from_bytes(file_data[attr_header.Attribute_Type_ID : attr_header.Attribute_Type_ID + 4], "little")
+        if attribute_type == 0xFFFFFFFF:
+            break
+
+        attribute_length = int.from_bytes(file_data[attr_header.Length_of_Attribute : attr_header.Length_of_Attribute + 4], "little")
+        non_resident_flag = file_data[attr_header.Non_Resident_Flag]
+        attribute_id = int.from_bytes(file_data[attr_header.Attribute_ID : attr_header.Attribute_ID + 2], "little")
+
+        attr_header_info = {
+            "Attribute_Type_ID": hex(attribute_type),
+            "Attribute_Length": attribute_length,
+            "Non_Resident_Flag": non_resident_flag,
+            "Attribute_ID": attribute_id
+        }
+        attribute_headers.append(attr_header_info)
+
+        # ─────────── 4. Attribute Content ───────────
+        attr_content_info = {"Attribute_Type_ID": hex(attribute_type)}
+
+        # Resident Header
+        if non_resident_flag == 0:
+            res_header = MFTOffset(offset_to_mft, offset_to_attribute, 0).ResidentHeader
+            content_size = int.from_bytes(file_data[res_header.Size_of_Content : res_header.Size_of_Content + 4], "little")
+            content_offset = int.from_bytes(file_data[res_header.Offset_to_Content : res_header.Offset_to_Content + 2], "little")
+            absolute_content_offset = offset_to_attribute + content_offset
+            content = file_data[absolute_content_offset : absolute_content_offset + content_size]
+
+            if attribute_type == 0x10:  # Standard_Information
+                std_info = Standard_Information(absolute_content_offset)
+                create_time = int.from_bytes(file_data[std_info.Create_Time : std_info.Create_Time + 8], "little")
+                modified_time = int.from_bytes(file_data[std_info.Modified_Time : std_info.Modified_Time + 8], "little")
+                accessed_time = int.from_bytes(file_data[std_info.Last_Accessed_Time : std_info.Last_Accessed_Time + 8], "little")
+
+                attr_content_info["Create_Time"] = filetime_to_datetime(create_time)
+                attr_content_info["Modified_Time"] = filetime_to_datetime(modified_time)
+                attr_content_info["Last_Accessed_Time"] = filetime_to_datetime(accessed_time)
+
+            elif attribute_type == 0x30:  # File_Name
+                fn = File_Name(absolute_content_offset)
+                fn_create = int.from_bytes(file_data[fn.Create_Time : fn.Create_Time + 8], "little")
+                fn_modified = int.from_bytes(file_data[fn.Modified_Time : fn.Modified_Time + 8], "little")
+                fn_real_size = int.from_bytes(file_data[fn.Real_Size_of_File : fn.Real_Size_of_File + 8], "little")
+                fn_flags = int.from_bytes(file_data[fn.Flags : fn.Flags + 4], "little")
+
+                name_length = file_data[fn.Length_of_Name]
+                name_bytes = file_data[fn.Name : fn.Name + name_length * 2]
+                filename = name_bytes.decode("utf-16le", errors="ignore")
+
+                attr_content_info["Filename_Create_Time"] = filetime_to_datetime(fn_create)
+                attr_content_info["Filename_Modified_Time"] = filetime_to_datetime(fn_modified)
+                attr_content_info["Filename_Real_Size"] = fn_real_size
+                attr_content_info["Filename_Flags"] = fn_flags
+                attr_content_info["Filename"] = filename
+
+        # Non-resident Header
+        else:
+            non_resident_headers.append({
+                "Attribute_Type_ID": hex(attribute_type),
+                "Note": "Non-resident attribute parsing not implemented."
+            })
+
+        attribute_contents.append(attr_content_info)
+        offset_to_attribute += attribute_length
+
+    result["Attribute_Headers"] = attribute_headers
+    if non_resident_headers:
+        result["Non_Resident_Headers"] = non_resident_headers
+    result["Attribute_Contents"] = attribute_contents
+
+    return result
