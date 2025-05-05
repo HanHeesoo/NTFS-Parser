@@ -1,3 +1,5 @@
+## ntfs_info.py
+
 class NTFSInfo:
     def __init__(self):
         self.VBR_Size = 0x200

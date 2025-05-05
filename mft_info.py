@@ -36,6 +36,18 @@ class ResidentHeader:
         self.Unused = offset_to_attribute + 0x17
         self.Attribute_Name = offset_to_attribute + 0x18
 
+class NonResidentHeader:
+    def __init__(self, offset_to_attribute):
+        self.Start_VCN = offset_to_attribute + 0x10
+        self.End_VCN = offset_to_attribute + 0x18
+        self.Offset_to_RunList = offset_to_attribute + 0x20
+        self.Compression_Unit_Size = offset_to_attribute + 0x22
+        self.Unused = offset_to_attribute + 0x24
+        self.Allocated_Size_of_Attribute_Content = offset_to_attribute + 0x28
+        self.Real_Size_of_Attribute_Content = offset_to_attribute + 0x30
+        self.Initialized_State_of_Attribute_Content = offset_to_attribute + 0x38
+        self.Attribute_Name = offset_to_attribute + 0x40
+
 class Standard_Information:
     def __init__(self, offset_to_content):
         self.Create_Time = offset_to_content + 0x00
@@ -65,6 +77,7 @@ class File_Name:
         self.Length_of_Name = offset_to_content + 0x40
         self.Namespace = offset_to_content + 0x41
         self.Name = offset_to_content + 0x42
+
 
 class MFTOffset:
     def __init__(self, offset_to_mft, offset_to_attribute, offset_to_content):

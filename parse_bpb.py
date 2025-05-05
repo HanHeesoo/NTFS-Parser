@@ -116,6 +116,5 @@ def parse_bpb(bpb_data, ntfs_info):
 
     # NTFS 정보 계산 및 출력
     ntfs_info.calculate_ntfs_info(parsed_bpb_data)
-    ntfs_info.display_ntfs_info()  # 정상 출력되도록 확인
 
     return parsed_bpb_data

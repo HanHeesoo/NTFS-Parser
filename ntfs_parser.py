@@ -2,10 +2,10 @@
 import argparse
 from vbr_info import *
 from parse_vbr import *
-from parse_vbr_bpb import *
-from parse_ntfs import *
+from parse_bpb import *
 from ntfs_info import *
 from parse_mft import *
+from initial import *
 
 VBR_SIZE = 512
 MFT_ENTRY_SIZE = 1024
@@ -42,10 +42,11 @@ def display_mft_entry(entry_index, entry_name, file_data, offset_to_mft):
     attr_headers = parsed_mft["Attribute_Headers"]
     non_res_headers = parsed_mft["Non_Resident_Headers"]
     attr_contents = parsed_mft["Attribute_Contents"]
+    attr_labels = parsed_mft["Attribute_Labels"]
 
     for i in range(attribute_cnt):
-        print(f"\n--- Attribute #{i} ---")
-
+        print(f"\n--- {attr_labels[i]} ---")
+        #print(f"\n--- attribute {i} ---")
         # 예: Attribute Header 출력
         if i < len(attr_headers):
             attr_header_list = attr_headers[i]
@@ -97,7 +98,6 @@ def scan_special_mft_entries(file_data, offset_to_mft):
 
     return special_entries
 
-
 def main():
     parser = argparse.ArgumentParser(description="NTFS Parser")
     parser.add_argument('-f', '--file', required=True, help='Path to NTFS image file')
@@ -106,14 +106,15 @@ def main():
     file_data = read_file(args.file)
     ntfs_info = NTFSInfo()
 
-    vbr_data = file_data[:VBR_SIZE]
-    parsed_vbr_data = parse_vbr(vbr_data)
-    parsed_bpb_data = parse_bpb(vbr_data, ntfs_info)
-
+    parsed_vbr_data, parsed_bpb_data, mft_entries, allocated_entries, entries_num = init(
+        ntfs_info,
+        file_data
+    )
     offset_to_mft = ntfs_info.Offset_to_MFT
 
+
     while True:
-        user_input = input("\nEnter structure to parse ('vbr', 'bpb', 'mft', 'exit' to quit): ").strip().lower()
+        user_input = input("\nEnter structure to parse ('vbr', 'bpb', 'mft', 'exit'): ").strip().lower()
 
         if user_input == 'vbr':
             print("\n===== [ VBR Info ] =====")
@@ -124,30 +125,35 @@ def main():
             display_object(parsed_bpb_data)
 
         elif user_input == 'mft':
-            special_entries = scan_special_mft_entries(file_data, offset_to_mft)
-
-            if not special_entries:
-                print("No special MFT entries found.")
+            if not mft_entries:
+                print("No MFT entries found.")
                 continue
 
-            print("\n[*] Special MFT Entries Found:")
-            for name, index in special_entries.items():
-                print(f"  Entry #{index}: {name}")
+            print("\n[*] Available MFT Entries:")
+            for idx, _ in mft_entries:
+                print(f"  Entry #{idx}")
 
-            selected_name = input("\nEnter the name of the special file to view (e.g., $MFT): ").strip()
-            if selected_name not in special_entries:
-                print("Invalid file name.")
+            try:
+                selected_idx = int(input("\nEnter MFT entry index to display: ").strip())
+            except ValueError:
+                print("Invalid index.")
                 continue
 
-            display_mft_entry(special_entries[selected_name], selected_name, file_data, offset_to_mft)
+            # 해당 인덱스를 가진 엔트리 찾기
+            entry = next((rec for idx, rec in mft_entries if idx == selected_idx), None)
+            if entry is None:
+                print("Index not found.")
+                continue
+
+            display_mft_entry(selected_idx, f"Entry_{selected_idx}", file_data, offset_to_mft)
+
 
         elif user_input == 'exit':
-            print("Exiting program.")
+            print("Exiting.")
             break
 
         else:
             print("Invalid option. Please enter 'vbr', 'bpb', 'mft', or 'exit'.")
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
